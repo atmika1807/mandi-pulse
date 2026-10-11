@@ -1,0 +1,43 @@
+name: Daily mandi fetch
+
+on:
+  schedule:
+    - cron: "30 12 * * *"   # every day at 6:00 PM IST (12:30 UTC)
+  workflow_dispatch:         # adds a "Run workflow" button for manual runs
+
+permissions:
+  contents: write            # lets the job commit the day's snapshot
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch today's mandi prices
+        env:
+          DATA_GOV_API_KEY: ${{ secrets.DATA_GOV_API_KEY }}
+        run: python ingest/fetch_prices.py
+
+      - name: Save compressed snapshot
+        run: |
+          mkdir -p data/snapshots
+          for f in data/raw/*.csv; do gzip -c "$f" > "data/snapshots/$(basename "$f").gz"; done
+          ls -lh data/snapshots
+
+      - name: Commit snapshot
+        run: |
+          git config user.name "mandi-pulse-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/snapshots
+          git diff --cached --quiet || git commit -m "Daily mandi snapshot $(date -u +%F)"
+          git push
